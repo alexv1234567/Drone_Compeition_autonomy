@@ -162,16 +162,25 @@ class TelloController:
 
     def part1(self, frame):
         print("Part 1")
+        key = cv2.waitKey(1) & 0xff
+        if key == ord('o'):
+            self.manual()
         #Insert hard code directions to general location
         self.accurate_landing(self, frame)
 
     def part2(self, frame):
         print("Part 2")
+        key = cv2.waitKey(1) & 0xff
+        if key == ord('o'):
+            self.manual()
         #Insert hard code directions to general location
         self.accurate_landing(self, frame)
 
     def part3(self, frame):
         print("Part 3")
+        key = cv2.waitKey(1) & 0xff
+        if key == ord('o'):
+            self.manual()
         #Insert hard code directions to general location
         self.accurate_landing(self, frame)
 

@@ -4,8 +4,8 @@ import threading
 import time
 from djitellopy import Tello
 
-lower = np.array([118, 17, 145])
-upper = np.array([141, 78, 254])
+lower = np.array([105, 28, 94])
+upper = np.array([179, 255, 160])
 
 class TelloController:
     def __init__(self):
@@ -36,9 +36,7 @@ class TelloController:
             time.sleep(1 / 60)  # High FPS loop
 
     def takeoff(self):
-        self.tello.send_rc_control(0,0,10,0)
-        time.sleep(3)
-        self.tello.send_rc_control(0,0,0,0)
+        self.tello.takeoff()
         self.z = 80.0
         print("Airborne!")
 

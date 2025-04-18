@@ -8,7 +8,7 @@ drone.connect()
 drone.streamoff()
 drone.streamon()
 
-width, height = 320, 240  # Resolution for processing/display
+width, height = 320, 240
 
 def empty(a): pass
 
@@ -25,9 +25,9 @@ cv2.createTrackbar("Val Max", "Control Panel", 255, 255, empty)
 while True:
     frame = drone.get_frame_read().frame
     img = cv2.resize(frame, (width, height))
-    output = img.copy()
-
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    # HSV filtering
     h_min = cv2.getTrackbarPos("Hue Min", "Control Panel")
     h_max = cv2.getTrackbarPos("Hue Max", "Control Panel")
     s_min = cv2.getTrackbarPos("Sat Min", "Control Panel")
@@ -39,54 +39,52 @@ while True:
     mask = cv2.inRange(hsv, lower, upper)
     result = cv2.bitwise_and(img, img, mask=mask)
 
+    # Grayscale + blur for circle/bullet detection
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (9, 9), 2)
 
-    # Draw video center
-    center_video = (width // 2, height // 2)
-    cv2.circle(output, center_video, 5, (0, 255, 0), -1)  # Green center dot
+    # Circle detection
+    circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, 1.2, 50, param1=50, param2=30, minRadius=30, maxRadius=300)
 
-    # Detect circles
-    circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, 1.2, 50,
-                               param1=50, param2=30, minRadius=30, maxRadius=300)
+    # Center of the image
+    frame_center = (width // 2, height // 2)
+
     if circles is not None:
-        circles = np.uint16(np.around(circles))
-        # Draw only the first detected circle
-        for i in circles[0, :1]:
-            x, y, r = i[0], i[1], i[2]
-            center_circle = (x, y)
+        for i in np.uint16(np.around(circles))[0, :1]:  # Take only the first circle
+            circle_center = (i[0], i[1])
+            radius = i[2]
 
-            # Draw circle outline and center dot
-            cv2.circle(output, center_circle, r, (0, 255, 0), 2)
-            cv2.circle(output, center_circle, 5, (0, 255, 0), -1)
+            # Draw circle outline
+            cv2.circle(result, circle_center, radius, (0, 255, 0), 2)
 
-            # Draw line connecting video center to circle center
-            cv2.line(output, center_video, center_circle, (0, 255, 0), 1)
+            # Green dot at center of circle
+            cv2.circle(result, circle_center, 4, (0, 255, 0), -1)
 
-            # Compute and show distance
-            dist = int(np.linalg.norm(np.array(center_circle) - np.array(center_video)))
-            cv2.putText(output, f"Dist: {dist}px", (10, height - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            break
+            # Green dot at center of frame
+            cv2.circle(result, frame_center, 4, (0, 255, 0), -1)
 
-    # Detect bullet holes
+            # Draw line between circle center and frame center
+            cv2.line(result, frame_center, circle_center, (0, 255, 0), 1)
+
+            # Calculate and display pixel distance
+            distance = int(np.linalg.norm(np.array(circle_center) - np.array(frame_center)))
+            cv2.putText(result, f"Dist: {distance}px", (10, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+    # Optional: draw bullet hole bounding boxes
     _, thresh = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY_INV)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for cnt in contours:
         area = cv2.contourArea(cnt)
         if 20 < area < 500:
             x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(output, (x, y), (x + w, y + h), (255, 0, 0), 2)
+            cv2.rectangle(result, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-    # Stack all views together
-    top = np.hstack((img, result))
-    bottom = np.hstack((cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), output))
-    combined = np.vstack((top, bottom))
+    # Compose GUI
+    top_row = np.hstack((img, result))
+    bottom_row = np.hstack((cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), np.zeros_like(img)))
+    dashboard = np.vstack((top_row, bottom_row))
 
-    cv2.imshow("Drone Vision Dashboard", combined)
-
-    if cv2.waitKey(1) & 0xFF == ord('p'):
-        break
+    cv2.imshow("Drone Vision Dashboard", dashboard)
 
 # Print final HSV values
 print("h_min:", h_min)

@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 import threading
-import math
 import time
 from djitellopy import Tello
 
@@ -9,7 +8,6 @@ class TelloController:
     def __init__(self):
         self.tello = Tello()
         self.x = self.y = self.z = 0.0
-        self.yaw = 0.0
         self.stream_on = False
         self.frame = None
         self._video_thread = None
@@ -45,19 +43,15 @@ class TelloController:
         print("Landed")
 
     def move(self, dx, dy, dz):
-        rad = math.radians(self.yaw)
-        forward = dx * math.cos(rad) + dy * math.sin(rad)
-        right = -dx * math.sin(rad) + dy * math.cos(rad)
+        if dx > 0:
+            self.tello.move_forward(dx)
+        elif dx < 0:
+            self.tello.move_back(dx)
 
-        if forward > 0:
-            self.tello.move_forward(int(forward))
-        elif forward < 0:
-            self.tello.move_back(int(-forward))
-
-        if right > 0:
-            self.tello.move_right(int(right))
-        elif right < 0:
-            self.tello.move_left(int(-right))
+        if dy > 0:
+            self.tello.move_right(dy)
+        elif dy < 0:
+            self.tello.move_left(-dy)
 
         if dz > 0:
             self.tello.move_up(int(dz))
@@ -69,13 +63,86 @@ class TelloController:
         self.z += dz
         print(f"Moved to X:{self.x:.0f} Y:{self.y:.0f} Z:{self.z:.0f}")
 
-    def rotate(self, deg):
-        if deg > 0:
-            self.tello.rotate_clockwise(int(deg))
-        else:
-            self.tello.rotate_counter_clockwise(int(-deg))
-        self.yaw = (self.yaw + deg) % 360
-        print(f"Yaw → {self.yaw:.0f}°")
+    def detect_circle(frame, color):
+        """Returns dx, dy, in_center, and px_to_cm (None if no circle found) dx and dy are in pixels relative to the center"""
+        height, width = frame.shape[:2]
+        center_x, center_y = width // 2, height // 2
+        if color == 1:
+            lower = np.array([109, 28, 94])
+            upper = np.array([179, 255, 160])
+        #if color == 2:
+            #set lower hsv boundaries
+            #set upper hsv boundaries
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, lower, upper)
+
+        blurred = cv2.GaussianBlur(mask, (9, 9), 2)
+        circles = cv2.HoughCircles(
+            blurred, cv2.HOUGH_GRADIENT, 1.2, 50,
+            param1=50, param2=30,
+            minRadius=20, maxRadius=200
+        )
+
+        if circles is not None:
+            circle = np.uint16(np.around(circles))[0][0]
+            cx, cy, radius = circle
+            diameter_px = radius * 2
+
+            # Calculate real-world cm per pixel
+            px_to_cm = 17.78 / diameter_px
+
+            # Define center 1/9th region bounds
+            x1 = center_x - width // 6
+            x2 = center_x + width // 6
+            y1 = center_y - height // 6
+            y2 = center_y + height // 6
+
+            dx = cx - center_x
+            dy = cy - center_y
+
+            in_center = x1 <= cx <= x2 and y1 <= cy <= y2
+            return dx, dy, in_center, px_to_cm
+
+        return 0, 0, False, None
+
+    def accurate_landing(self, frame, color):
+        print("Starting accurate landing...")
+        while self.z > 30:
+            frame = self.frame
+            if frame is None:
+                continue
+
+            dx, dy, circle_detected, px_to_cm = self.detect_circle(frame, color)
+
+            if circle_detected:
+                print("Circle centered — descending 20cm")
+                self.move(0, 0, -20)
+                time.sleep(1)
+            else:
+                move_x = -dx * px_to_cm  # left/right
+                move_y = -dy * px_to_cm  # forward/backward
+                print(f"Adjusting position: dx={dx}px dy={dy}px → move({move_y:.1f}, {move_x:.1f}, 0)")
+                self.move(move_y, move_x, 0)
+                time.sleep(1)
+
+        print("Landing...")
+        self.land()
+
+    def part1(self, frame):
+        print("Part 1")
+        #Hard code direction to general location
+        self.accurate_landing(self, frame, 0)
+
+    def part2(self, frame):
+        print("Part 2")
+        #Hard code direction to general location
+        self.accurate_landing(self, frame, 1)
+
+    def part3(self, frame):
+        print("Part 3")
+        #Hard code direction to general location
+        self.accurate_landing(self, frame, 0)
 
     def cleanup(self):
         self.stream_on = False
@@ -157,8 +224,8 @@ def main():
         result = cv2.bitwise_and(img, img, mask=mask)
 
         # Circle detection
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (9, 9), 2)
+        masked_gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)  # Only color-masked regions
+        blurred = cv2.GaussianBlur(masked_gray, (9, 9), 2)
         circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, 1.2, 50, param1=50, param2=30, minRadius=30, maxRadius=300)
         frame_center = (160, 120)
 

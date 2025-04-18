@@ -24,6 +24,7 @@ cv2.createTrackbar("Val Max", "Control Panel", 255, 255, empty)
 
 while True:
     frame = drone.get_frame_read().frame
+    frame = cv2.GaussianBlur(frame, (3, 3), 2)
     img = cv2.resize(frame, (width, height))
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
@@ -39,12 +40,8 @@ while True:
     mask = cv2.inRange(hsv, lower, upper)
     result = cv2.bitwise_and(img, img, mask=mask)
 
-    # Grayscale + blur for circle/bullet detection
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (9, 9), 2)
-
     # Circle detection
-    circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, 1.2, 50, param1=50, param2=30, minRadius=30, maxRadius=300)
+    circles = cv2.HoughCircles(mask, cv2.HOUGH_GRADIENT, 1.2, 50, param1=50, param2=30, minRadius=30, maxRadius=300)
 
     # Center of the image
     frame_center = (width // 2, height // 2)
@@ -71,7 +68,7 @@ while True:
             cv2.putText(result, f"Dist: {distance}px", (10, height - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
     # Optional: draw bullet hole bounding boxes
-    _, thresh = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY_INV)
+    _, thresh = cv2.threshold(frame, 50, 255, cv2.THRESH_BINARY_INV)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for cnt in contours:
         area = cv2.contourArea(cnt)

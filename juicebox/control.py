@@ -4,6 +4,9 @@ import threading
 import time
 from djitellopy import Tello
 
+lower = np.array([118, 17, 145])
+upper = np.array([141, 78, 254])
+
 class TelloController:
     def __init__(self):
         self.tello = Tello()
@@ -33,9 +36,35 @@ class TelloController:
             time.sleep(1 / 60)  # High FPS loop
 
     def takeoff(self):
-        self.tello.takeoff()
+        self.tello.send_rc_control(0,0,10,0)
+        time.sleep(3)
+        self.tello.send_rc_control(0,0,0,0)
         self.z = 80.0
         print("Airborne!")
+
+    def manual(self):
+        print("esc, w, a, s, d, e, f, u, d")
+        print("exit, forward, left, back, right, cw, ccw, up, down")
+        while True:
+            key = cv2.waitKey(1) & 0xff
+            if key == ord('w'):
+                self.tello.move_forward(30)
+            elif key == ord('s'):
+                self.tello.move_back(30)
+            elif key == ord('a'):
+                self.tello.move_left(30)
+            elif key == ord('d'):
+                self.tello.move_right(30)
+            elif key == ord('e'):
+                self.tello.rotate_clockwise(30)
+            elif key == ord('f'):
+                self.tello.rotate_counter_clockwise(30)
+            elif key == ord('u'):
+                self.tello.move_up(30)
+            elif key == ord('d'):
+                self.tello.move_down(30)
+            elif key == 27:
+                break
 
     def land(self):
         self.tello.land()
@@ -63,23 +92,18 @@ class TelloController:
         self.z += dz
         print(f"Moved to X:{self.x:.0f} Y:{self.y:.0f} Z:{self.z:.0f}")
 
-    def detect_circle(frame, color):
+    def detect_circle(frame):
         """Returns dx, dy, in_center, and px_to_cm (None if no circle found) dx and dy are in pixels relative to the center"""
         height, width = frame.shape[:2]
         center_x, center_y = width // 2, height // 2
-        if color == 1:
-            lower = np.array([109, 28, 94])
-            upper = np.array([179, 255, 160])
-        #if color == 2:
-            #set lower hsv boundaries
-            #set upper hsv boundaries
 
+        frame = cv2.GaussianBlur(frame, (3, 3), 2)
+        
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, lower, upper)
-
-        blurred = cv2.GaussianBlur(mask, (9, 9), 2)
+        
         circles = cv2.HoughCircles(
-            blurred, cv2.HOUGH_GRADIENT, 1.2, 50,
+            mask, cv2.HOUGH_GRADIENT, 1.2, 50,
             param1=50, param2=30,
             minRadius=20, maxRadius=200
         )
@@ -102,47 +126,54 @@ class TelloController:
             dy = cy - center_y
 
             in_center = x1 <= cx <= x2 and y1 <= cy <= y2
-            return dx, dy, in_center, px_to_cm
+            return dx, dy, in_center, px_to_cm, False
+        elif circles is None:
+            return 0, 0, False, None, True
+        return 0, 0, False, None, False
 
-        return 0, 0, False, None
-
-    def accurate_landing(self, frame, color):
+    def accurate_landing(self, frame):
         print("Starting accurate landing...")
         while self.z > 30:
+            key = cv2.waitKey(1) & 0xff
+            if key == ord('d'):
+                self.manual()
+
             frame = self.frame
             if frame is None:
                 continue
 
-            dx, dy, circle_detected, px_to_cm = self.detect_circle(frame, color)
+            dx, dy, circle_detected, px_to_cm, orbit = self.detect_circle(frame)
 
             if circle_detected:
                 print("Circle centered — descending 20cm")
                 self.move(0, 0, -20)
                 time.sleep(1)
             else:
-                move_x = -dx * px_to_cm  # left/right
-                move_y = -dy * px_to_cm  # forward/backward
-                print(f"Adjusting position: dx={dx}px dy={dy}px → move({move_y:.1f}, {move_x:.1f}, 0)")
-                self.move(move_y, move_x, 0)
-                time.sleep(1)
+                if orbit:
+                    self.manual()
+                else:
+                    move_x = -dx * px_to_cm  # left/right
+                    move_y = -dy * px_to_cm  # forward/backward
+                    print(f"Adjusting position: dx={dx}px dy={dy}px → move({move_y:.1f}, {move_x:.1f}, 0)")
+                    self.move(move_y, move_x, 0)
+                    time.sleep(1)
 
-        print("Landing...")
-        self.land()
+        print("Hovering...")
 
     def part1(self, frame):
         print("Part 1")
-        #Hard code direction to general location
-        self.accurate_landing(self, frame, 0)
+        #Insert hard code directions to general location
+        self.accurate_landing(self, frame)
 
     def part2(self, frame):
         print("Part 2")
-        #Hard code direction to general location
-        self.accurate_landing(self, frame, 1)
+        #Insert hard code directions to general location
+        self.accurate_landing(self, frame)
 
     def part3(self, frame):
         print("Part 3")
-        #Hard code direction to general location
-        self.accurate_landing(self, frame, 0)
+        #Insert hard code directions to general location
+        self.accurate_landing(self, frame)
 
     def cleanup(self):
         self.stream_on = False
@@ -155,7 +186,7 @@ class TelloController:
         cv2.destroyAllWindows()
 
 def command_loop(drone: TelloController):
-    print("\nCommands:\n takeoff | land | move x y z | rotate deg | exit\n")
+    print("\nCommands:\n takeoff | land | 1, 2, 3 | move x y z | manual | exit\n")
     try:
         while drone.stream_on:
             cmd = input("> ").strip().lower()
@@ -167,20 +198,25 @@ def command_loop(drone: TelloController):
                 break
             elif cmd == "takeoff":
                 drone.takeoff()
+                print("\nCommands:\n takeoff | land | 1, 2, 3 | move x y z | manual | exit\n")
             elif cmd == "land":
                 drone.land()
+                print("\nCommands:\n takeoff | land | 1, 2, 3 | move x y z | manual | exit\n")
+            elif cmd == "1":
+                drone.part1()
+                print("\nCommands:\n takeoff | land | 1, 2, 3 | move x y z | manual | exit\n")
+            elif cmd == "2":
+                drone.part2
+                print("\nCommands:\n takeoff | land | 1, 2, 3 | move x y z | manual | exit\n")
+            elif cmd == "manual":
+                drone.manual()
+                print("\nCommands:\n takeoff | land | 1, 2, 3 | move x y z | manual | exit\n")
             elif cmd.startswith("move"):
                 try:
                     _, x, y, z = cmd.split()
                     drone.move(float(x), float(y), float(z))
                 except ValueError:
                     print("Usage: move x y z")
-            elif cmd.startswith("rotate"):
-                try:
-                    _, deg = cmd.split()
-                    drone.rotate(float(deg))
-                except ValueError:
-                    print("Usage: rotate deg")
             else:
                 print("Invalid command")
     finally:
@@ -194,12 +230,12 @@ def main():
     def empty(a): pass
     cv2.namedWindow("Control Panel")
     cv2.resizeWindow("Control Panel", 640, 240)
-    cv2.createTrackbar("Hue Min", "Control Panel", 0, 179, empty)
-    cv2.createTrackbar("Hue Max", "Control Panel", 179, 179, empty)
-    cv2.createTrackbar("Sat Min", "Control Panel", 0, 255, empty)
-    cv2.createTrackbar("Sat Max", "Control Panel", 255, 255, empty)
-    cv2.createTrackbar("Val Min", "Control Panel", 0, 255, empty)
-    cv2.createTrackbar("Val Max", "Control Panel", 255, 255, empty)
+    cv2.createTrackbar("Hue Min", "Control Panel", 118, 179, empty)
+    cv2.createTrackbar("Hue Max", "Control Panel", 141, 179, empty)
+    cv2.createTrackbar("Sat Min", "Control Panel", 17, 255, empty)
+    cv2.createTrackbar("Sat Max", "Control Panel", 78, 255, empty)
+    cv2.createTrackbar("Val Min", "Control Panel", 145, 255, empty)
+    cv2.createTrackbar("Val Max", "Control Panel", 254, 255, empty)
 
     threading.Thread(target=command_loop, args=(drone,), daemon=True).start()
 
@@ -207,8 +243,7 @@ def main():
         if drone.frame is None:
             continue
 
-        img = drone.frame.copy()
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        frame = drone.frame.copy()
 
         # HSV masking
         h_min = cv2.getTrackbarPos("Hue Min", "Control Panel")
@@ -217,17 +252,19 @@ def main():
         s_max = cv2.getTrackbarPos("Sat Max", "Control Panel")
         v_min = cv2.getTrackbarPos("Val Min", "Control Panel")
         v_max = cv2.getTrackbarPos("Val Max", "Control Panel")
-
         lower = np.array([h_min, s_min, v_min])
         upper = np.array([h_max, s_max, v_max])
-        mask = cv2.inRange(hsv, lower, upper)
-        result = cv2.bitwise_and(img, img, mask=mask)
 
         # Circle detection
-        masked_gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)  # Only color-masked regions
-        blurred = cv2.GaussianBlur(masked_gray, (9, 9), 2)
+        img = cv2.GaussianBlur(frame, (3, 3), 2)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, lower, upper)
+        result = cv2.bitwise_and(img, img, mask=mask)
+        masked_gray = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(masked_gray, (7, 7), 2)
         circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, 1.2, 50, param1=50, param2=30, minRadius=30, maxRadius=300)
         frame_center = (160, 120)
+
 
         if circles is not None:
             for i in np.uint16(np.around(circles))[0, :1]:
@@ -248,6 +285,11 @@ def main():
 
         # Bullet holes
         _, thresh = cv2.threshold(blurred, 50, 255, cv2.THRESH_BINARY_INV)
+
+        #test
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        #thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for cnt in contours:
             if 20 < cv2.contourArea(cnt) < 500:
